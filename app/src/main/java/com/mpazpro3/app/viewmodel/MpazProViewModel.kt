@@ -1,11 +1,17 @@
 package com.mpazpro3.app.viewmodel
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
 import com.mpazpro3.app.data.MockData
+import com.mpazpro3.app.data.local.AppDatabase
+import com.mpazpro3.app.data.local.RespuestaEntity
+import com.mpazpro3.app.data.local.SeguimientoEntity
 import com.mpazpro3.app.model.Actividad
 import com.mpazpro3.app.model.Asignacion
 import com.mpazpro3.app.model.Asignatura
 import com.mpazpro3.app.model.Contenido
+import com.mpazpro3.app.model.EstadoAvance
 import com.mpazpro3.app.model.EstadoAprobacion
 import com.mpazpro3.app.model.Estudiante
 import com.mpazpro3.app.model.InformeDocente
@@ -17,20 +23,39 @@ import com.mpazpro3.app.model.Usuario
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
-/**
- * ViewModel único, compartido por todas las pantallas (se crea una sola vez en AppNavigation).
- *
- * ESTO ES UN ESQUELETO: las pantallas ya llaman a todas estas funciones, pero la lógica de
- * negocio del caso está vacía a propósito y marcada con TODO(equipo), citando el módulo de
- * Requerimientos_Seccion007 al que corresponde. Mientras no se implemente, las listas se
- * muestran sin filtrar y las acciones (aprobar, asignar, responder, validar) no cambian nada.
- */
-class MpazProViewModel : ViewModel() {
+class MpazProViewModel(application: Application) : AndroidViewModel(application) {
 
-    // =====================================================================
-    // Autenticación
-    // =====================================================================
+    private val dao = AppDatabase.getDatabase(application).seguimientoDao()
+
+    private val _seguimientos = MutableStateFlow(MockData.seguimientos)
+    val seguimientos: StateFlow<List<SeguimientoAvance>> = _seguimientos.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            val segsDb = dao.getTodosLosSeguimientos()
+            val respDb = dao.getTodasLasRespuestas()
+
+            if (segsDb.isNotEmpty()) {
+                val convertidos = segsDb.map { entidad ->
+                    val respuestasEntidad = respDb.filter { it.seguimientoId == entidad.id }
+                    val respuestasConvertidas = respuestasEntidad.map { r ->
+                        RespuestaEstudiante(r.actividadId, r.alternativaElegida, r.esCorrecta, r.numeroIntento)
+                    }
+                    SeguimientoAvance(
+                        estudianteId = entidad.estudianteId,
+                        contenidoId = entidad.contenidoId,
+                        materialRevisado = entidad.materialRevisado,
+                        respuestas = respuestasConvertidas,
+                        intentosEvaluacionUsados = entidad.intentosEvaluacionUsados,
+                        estado = EstadoAvance.valueOf(entidad.estado)
+                    )
+                }
+                _seguimientos.value = convertidos
+            }
+        }
+    }
 
     private val _usuarioActivo = MutableStateFlow<Usuario?>(null)
     val usuarioActivo: StateFlow<Usuario?> = _usuarioActivo.asStateFlow()
@@ -38,21 +63,11 @@ class MpazProViewModel : ViewModel() {
     private val _errorLogin = MutableStateFlow<String?>(null)
     val errorLogin: StateFlow<String?> = _errorLogin.asStateFlow()
 
-    /**
-     * TODO(equipo): validar usuario y clave contra MockData.usuarios. Si son correctos, dejar
-     * _usuarioActivo con ese usuario y devolver true (AppNavigation ya lleva a cada perfil a su
-     * pantalla). Si no, dejar _errorLogin con un mensaje y devolver false.
-     * Pendiente con el CITT: cómo se autentica el estudiante.
-     */
     fun login(usuario: String, clave: String): Boolean {
-        _errorLogin.value = "Login sin implementar — ver TODO(equipo) en MpazProViewModel.login()."
+        _errorLogin.value = "Login sin implementar."
         return false
     }
 
-    /**
-     * SOLO PARA DESARROLLO: entra con el usuario de prueba del perfil indicado, sin validar
-     * credenciales. TODO(equipo): eliminar esta función y los botones "Modo desarrollo".
-     */
     fun entrarModoDesarrollo(perfil: Perfil) {
         _usuarioActivo.value = MockData.usuarios.first { it.perfil == perfil }
         _errorLogin.value = null
@@ -64,10 +79,6 @@ class MpazProViewModel : ViewModel() {
         _contenidoSeleccionadoId.value = null
         _estudianteSeleccionadoId.value = null
     }
-
-    // =====================================================================
-    // Datos compartidos y selección (no es lógica de negocio)
-    // =====================================================================
 
     private val _contenidos = MutableStateFlow(MockData.contenidos)
     val contenidos: StateFlow<List<Contenido>> = _contenidos.asStateFlow()
@@ -81,9 +92,6 @@ class MpazProViewModel : ViewModel() {
     private val _estudiantes = MutableStateFlow(MockData.estudiantes)
     val estudiantes: StateFlow<List<Estudiante>> = _estudiantes.asStateFlow()
 
-    private val _seguimientos = MutableStateFlow(MockData.seguimientos)
-    val seguimientos: StateFlow<List<SeguimientoAvance>> = _seguimientos.asStateFlow()
-
     private val _informes = MutableStateFlow<List<InformeDocente>>(emptyList())
     val informes: StateFlow<List<InformeDocente>> = _informes.asStateFlow()
 
@@ -93,162 +101,133 @@ class MpazProViewModel : ViewModel() {
     private val _estudianteSeleccionadoId = MutableStateFlow<String?>(null)
     val estudianteSeleccionadoId: StateFlow<String?> = _estudianteSeleccionadoId.asStateFlow()
 
-    fun seleccionarContenido(id: String?) {
-        _contenidoSeleccionadoId.value = id
-    }
-
-    fun seleccionarEstudiante(id: String?) {
-        _estudianteSeleccionadoId.value = id
-    }
-
+    fun seleccionarContenido(id: String?) { _contenidoSeleccionadoId.value = id }
+    fun seleccionarEstudiante(id: String?) { _estudianteSeleccionadoId.value = id }
     fun contenidoPorId(id: String?): Contenido? = _contenidos.value.find { it.id == id }
-
     fun estudiantePorId(id: String?): Estudiante? = _estudiantes.value.find { it.id == id }
-
-    fun recursosDe(contenidoId: String?): List<RecursoDidactico> =
-        _recursos.value.filter { it.contenidoId == contenidoId }
-
+    fun recursosDe(contenidoId: String?): List<RecursoDidactico> = _recursos.value.filter { it.contenidoId == contenidoId }
     fun actividadPorId(id: String): Actividad? = _actividades.value.find { it.id == id }
 
-    // =====================================================================
-    // Módulo "Autorización de contenidos (UTP)"
-    // =====================================================================
-
-    /**
-     * TODO(equipo): filtrar por asignatura y por estado (null = todos). Hoy devuelve todo.
-     */
     fun contenidosFiltrados(asignatura: Asignatura?, estado: EstadoAprobacion?): List<Contenido> = _contenidos.value
-
-    /**
-     * TODO(equipo): cambiar el estado del contenido a APROBADO y guardar la observación.
-     * RF: "UTP debe poder revisar y autorizar/rechazar un contenido" y "registrar el estado de
-     * aprobación de cada contenido". Hoy no hace nada.
-     */
-    fun aprobarContenido(contenidoId: String, observacion: String) {
-        // Sin implementar todavía.
-    }
-
-    /** TODO(equipo): igual que aprobarContenido(), pero con estado RECHAZADO. Hoy no hace nada. */
-    fun rechazarContenido(contenidoId: String, observacion: String) {
-        // Sin implementar todavía.
-    }
-
-    // =====================================================================
-    // Módulo "Planificación docente"
-    // =====================================================================
-
-    /**
-     * TODO(equipo): devolver SOLO los contenidos APROBADOS por UTP (regla de negocio: un
-     * contenido no autorizado no puede asignarse). Hoy devuelve todos.
-     */
+    fun aprobarContenido(contenidoId: String, observacion: String) {}
+    fun rechazarContenido(contenidoId: String, observacion: String) {}
     fun contenidosDisponiblesParaAsignar(): List<Contenido> = _contenidos.value
-
-    /**
-     * TODO(equipo): crear las asignaciones del curso para los contenidos elegidos, con el máximo
-     * de intentos de la evaluación final. RF: "seleccionar los OA disponibles", "asignar
-     * contenidos y desafíos a su curso", "definir el número máximo de intentos". Validar que
-     * todos los contenidos estén aprobados. Hoy no hace nada.
-     */
-    fun asignarAlCurso(curso: String, contenidoIds: List<String>, maxIntentos: Int) {
-        // Sin implementar todavía.
-    }
-
-    /** TODO(equipo): devolver solo las asignaciones del curso indicado. Hoy devuelve todas. */
+    fun asignarAlCurso(curso: String, contenidoIds: List<String>, maxIntentos: Int) {}
     fun asignacionesDelCurso(curso: String): List<Asignacion> = _asignaciones.value
-
-    /**
-     * TODO(equipo): calcular el avance del estudiante (0.0 a 1.0) a partir de sus
-     * SeguimientoAvance. RF: "revisar los resultados de sus estudiantes". Hoy devuelve 0.
-     */
     fun progresoGeneral(estudianteId: String): Float = 0f
-
-    /**
-     * TODO(equipo): exportar los resultados del curso (por ejemplo a un archivo CSV o PDF que
-     * se pueda compartir). RF: "revisar, descargar y validar los resultados". Hoy no hace nada.
-     */
-    fun descargarResultados(curso: String) {
-        // Sin implementar todavía.
-    }
-
-    // =====================================================================
-    // Módulo "Informe pedagógico"
-    // =====================================================================
-
+    fun descargarResultados(curso: String) {}
     fun informeDe(estudianteId: String?): InformeDocente? = _informes.value.find { it.estudianteId == estudianteId }
-
-    /**
-     * TODO(equipo): generar el informe del estudiante (rendimiento, fortalezas y aspectos a
-     * reforzar) a partir de sus respuestas, en estado BORRADOR. Restricciones del caso: sin
-     * diagnósticos ni consecuencias académicas automáticas. Hoy no hace nada.
-     */
-    fun generarInforme(estudianteId: String) {
-        // Sin implementar todavía.
-    }
-
-    /**
-     * TODO(equipo): pasar el informe de BORRADOR a VALIDADO. RF: "el informe debe quedar
-     * sujeto a validación docente antes de considerarse definitivo". Hoy no hace nada.
-     */
-    fun validarInforme(informeId: String) {
-        // Sin implementar todavía.
-    }
-
-    // =====================================================================
-    // Módulo "Experiencia del estudiante"
-    // =====================================================================
-
-    /**
-     * TODO(equipo): devolver solo los contenidos asignados al curso del estudiante. Hoy devuelve
-     * todos. Regla: el estudiante no puede modificar contenidos ni ver el informe pedagógico.
-     */
+    fun generarInforme(estudianteId: String) {}
+    fun validarInforme(informeId: String) {}
     fun contenidosDelEstudiante(usuario: Usuario?): List<Contenido> = _contenidos.value
-
-    /** TODO(equipo): avance del estudiante en el contenido (0.0 a 1.0). Hoy devuelve 0. */
-    fun progreso(estudianteId: String, contenidoId: String): Float = 0f
-
-    /**
-     * TODO(equipo): guardar que el estudiante terminó de revisar el material. RF: "conservar el
-     * progreso del estudiante y confirmar la finalización de cada actividad". Hoy no hace nada.
-     */
-    fun confirmarMaterialRevisado(estudianteId: String, contenidoId: String) {
-        // Sin implementar todavía.
-    }
-
-    /**
-     * TODO(equipo): devolver los desafíos del contenido (sin la evaluación final), ordenados
-     * por dificultad progresiva. Hoy devuelve TODAS las actividades, sin filtrar ni ordenar.
-     */
     fun desafiosDe(contenidoId: String?): List<Actividad> = _actividades.value
-
-    /**
-     * TODO(equipo): registrar la respuesta en el seguimiento del estudiante y devolver si fue
-     * correcta (true/false) para mostrar la retroalimentación. Hoy devuelve null.
-     */
-    fun responderDesafio(estudianteId: String, actividad: Actividad, alternativa: Int): Boolean? = null
-
-    /** TODO(equipo): devolver solo las preguntas de la evaluación final del contenido. Hoy devuelve todas. */
     fun evaluacionFinalDe(contenidoId: String?): List<Actividad> = _actividades.value
-
-    /**
-     * TODO(equipo): intentos que le quedan al estudiante en la evaluación final (máximo definido
-     * por el docente menos los usados). Regla de negocio: el máximo debe respetarse
-     * estrictamente. Hoy devuelve null (sin calcular).
-     */
     fun intentosRestantes(estudianteId: String, contenidoId: String): Int? = null
+    fun respuestasDe(estudianteId: String, contenidoId: String): List<RespuestaEstudiante> = emptyList()
 
-    /**
-     * TODO(equipo): registrar las respuestas de la evaluación final como un nuevo intento
-     * (solo si quedan intentos) y actualizar el seguimiento. Hoy no hace nada.
-     * @param respuestas mapa idActividad -> índice de la alternativa elegida.
-     */
-    fun enviarEvaluacion(estudianteId: String, contenidoId: String, respuestas: Map<String, Int>) {
-        // Sin implementar todavía.
+    fun progreso(estudianteId: String, contenidoId: String): Float {
+        val seg = _seguimientos.value.find {
+            it.estudianteId == estudianteId && it.contenidoId == contenidoId
+        } ?: return 0f
+
+        val desafios = desafiosDe(contenidoId)
+        val evaluacion = evaluacionFinalDe(contenidoId)
+
+        val totalPasos = 1 + desafios.size + evaluacion.size
+        if (totalPasos == 0) return 0f
+
+        val pasosMaterial = if (seg.materialRevisado) 1 else 0
+        val idsDesafios = desafios.map { it.id }.toSet()
+        val idsEval = evaluacion.map { it.id }.toSet()
+
+        val respondidosDesafio = seg.respuestas.count { it.actividadId in idsDesafios }
+        val respondidosEval = seg.respuestas.count { it.actividadId in idsEval }
+
+        val progresoBruto = (pasosMaterial + respondidosDesafio + respondidosEval).toFloat() / totalPasos
+        return progresoBruto.coerceIn(0f, 1f)
     }
 
-    /**
-     * TODO(equipo): devolver las respuestas del estudiante en el contenido, para que revise
-     * cuáles fueron correctas e incorrectas. RF: "revisar cuáles de sus respuestas fueron
-     * correctas o incorrectas". Hoy devuelve una lista vacía.
-     */
-    fun respuestasDe(estudianteId: String, contenidoId: String): List<RespuestaEstudiante> = emptyList()
+    fun confirmarMaterialRevisado(estudianteId: String, contenidoId: String) {
+        val actual = _seguimientos.value.find { it.estudianteId == estudianteId && it.contenidoId == contenidoId }
+
+        val nuevoEstado = if (actual != null) {
+            actual.copy(materialRevisado = true, estado = EstadoAvance.EN_PROGRESO)
+        } else {
+            SeguimientoAvance(estudianteId, contenidoId, true, emptyList(), 0, EstadoAvance.EN_PROGRESO)
+        }
+
+        _seguimientos.value = _seguimientos.value.filterNot {
+            it.estudianteId == estudianteId && it.contenidoId == contenidoId
+        } + nuevoEstado
+
+        viewModelScope.launch {
+            val entity = SeguimientoEntity(
+                id = "$estudianteId-$contenidoId",
+                estudianteId = estudianteId,
+                contenidoId = contenidoId,
+                materialRevisado = true,
+                intentosEvaluacionUsados = nuevoEstado.intentosEvaluacionUsados,
+                estado = EstadoAvance.EN_PROGRESO.name
+            )
+            dao.upsertSeguimiento(entity)
+        }
+    }
+
+    fun responderDesafio(estudianteId: String, actividad: Actividad, alternativa: Int): Boolean? {
+        val esCorrecta = actividad.alternativas.getOrNull(alternativa)?.esCorrecta == true
+        val respuesta = RespuestaEstudiante(actividad.id, alternativa, esCorrecta, 1)
+
+        val actual = _seguimientos.value.find { it.estudianteId == estudianteId && it.contenidoId == actividad.contenidoId }
+        val nuevoEstado = actual?.copy(
+            respuestas = actual.respuestas + respuesta,
+            estado = EstadoAvance.EN_PROGRESO
+        ) ?: SeguimientoAvance(estudianteId, actividad.contenidoId, false, listOf(respuesta), 0, EstadoAvance.EN_PROGRESO)
+
+        _seguimientos.value = _seguimientos.value.filterNot {
+            it.estudianteId == estudianteId && it.contenidoId == actividad.contenidoId
+        } + nuevoEstado
+
+        viewModelScope.launch {
+            val segId = "$estudianteId-${actividad.contenidoId}"
+            dao.upsertSeguimiento(SeguimientoEntity(
+                segId, estudianteId, actividad.contenidoId, nuevoEstado.materialRevisado, nuevoEstado.intentosEvaluacionUsados, EstadoAvance.EN_PROGRESO.name
+            ))
+            dao.insertRespuesta(RespuestaEntity(
+                seguimientoId = segId, actividadId = actividad.id, alternativaElegida = alternativa, esCorrecta = esCorrecta, numeroIntento = 1
+            ))
+        }
+        return esCorrecta
+    }
+
+    fun enviarEvaluacion(estudianteId: String, contenidoId: String, respuestas: Map<String, Int>) {
+        val evaluacion = evaluacionFinalDe(contenidoId)
+        val nuevasRespuestas = evaluacion.mapNotNull { actividad ->
+            val alternativaElegida = respuestas[actividad.id] ?: return@mapNotNull null
+            val esCorrecta = actividad.alternativas.getOrNull(alternativaElegida)?.esCorrecta == true
+            RespuestaEstudiante(actividad.id, alternativaElegida, esCorrecta, (intentosRestantes(estudianteId, contenidoId) ?: 1))
+        }
+
+        val actual = _seguimientos.value.find { it.estudianteId == estudianteId && it.contenidoId == contenidoId }
+        val nuevoEstado = actual?.copy(
+            respuestas = actual.respuestas + nuevasRespuestas,
+            intentosEvaluacionUsados = actual.intentosEvaluacionUsados + 1,
+            estado = EstadoAvance.FINALIZADO
+        ) ?: SeguimientoAvance(estudianteId, contenidoId, false, nuevasRespuestas, 1, EstadoAvance.FINALIZADO)
+
+        _seguimientos.value = _seguimientos.value.filterNot {
+            it.estudianteId == estudianteId && it.contenidoId == contenidoId
+        } + nuevoEstado
+
+        viewModelScope.launch {
+            val segId = "$estudianteId-$contenidoId"
+            dao.upsertSeguimiento(SeguimientoEntity(
+                segId, estudianteId, contenidoId, nuevoEstado.materialRevisado, nuevoEstado.intentosEvaluacionUsados, EstadoAvance.FINALIZADO.name
+            ))
+            nuevasRespuestas.forEach { resp ->
+                dao.insertRespuesta(RespuestaEntity(
+                    seguimientoId = segId, actividadId = resp.actividadId, alternativaElegida = resp.alternativaElegida, esCorrecta = resp.esCorrecta, numeroIntento = resp.numeroIntento
+                ))
+            }
+        }
+    }
 }
