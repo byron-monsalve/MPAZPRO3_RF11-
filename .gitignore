@@ -1,0 +1,14 @@
+# Android / Gradle
+*.iml
+.gradle/
+.idea/
+.kotlin/
+build/
+app/build/
+captures/
+.externalNativeBuild/
+.cxx/
+.DS_Store
+
+# Llave de evaluación: la pauta pide incluir el .jks, el APK firmado y su configuración en el repositorio
+local.properties
